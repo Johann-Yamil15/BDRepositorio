@@ -1,5 +1,5 @@
 # Base de datos para aplicaciones
-
+!['Imagen Base de datos'](./img/db.jpg)
 ---
 
 En este repositorio se pueden encontrar temas y
