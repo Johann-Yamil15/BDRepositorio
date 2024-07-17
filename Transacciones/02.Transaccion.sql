@@ -9,13 +9,15 @@ GO
 declare @TablaProducto as ProductsTableType
 INSERT INTO @TablaProducto(ProductID,Quantity,Discount)
 values(1,5,0),(2,8,0),(3,10,0)
+-- Visualizar los datos de la tabla de parámetros
+SELECT * FROM @TablaProducto;
 go
 
 SELECT * from products;
 GO
 
 -- Procedimiento almacenado modificado
-CREATE OR ALTER PROCEDURE ps_insertOrder_tabla_Parametros
+CREATE OR ALTER PROCEDURE ups_insertOrder_tabla_Parametros
     @CustomerID nchar(5),
     @EmployeeID int,
     @OrderDate datetime,
@@ -47,7 +49,7 @@ BEGIN
             SET @OrderID = SCOPE_IDENTITY();
 
             -- Iterar sobre cada fila de la tabla de parámetros
-            DECLARE @ProductID int, @Quantity smallint, @Discount real, @precioVenta money;
+            DECLARE @ProductID int, @Quantity smallint, @Discount real, @precioVenta money, @UnitsInStock int;
             
             DECLARE cur CURSOR FOR 
             SELECT ProductID, Quantity, Discount FROM @TablaProducto;
@@ -57,22 +59,32 @@ BEGIN
 
             WHILE @@FETCH_STATUS = 0
             BEGIN
-                -- Obtener el Precio del producto a insertar
+                -- Obtener el Precio del producto y el stock actual
                 IF EXISTS(SELECT 1 FROM Northwind.dbo.Products WHERE ProductID = @ProductID)
                 BEGIN
-                    SELECT @precioVenta = UnitPrice FROM Northwind.dbo.Products WHERE ProductID = @ProductID;
+                    SELECT @precioVenta = UnitPrice, @UnitsInStock = UnitsInStock FROM Northwind.dbo.Products WHERE ProductID = @ProductID;
                     
-                    INSERT INTO Northwind.dbo.[Order Details](
-                        OrderID, ProductID, UnitPrice, Quantity, Discount
-                    ) 
-                    VALUES(
-                        @OrderID, @ProductID, @precioVenta, @Quantity, @Discount
-                    );
+                    -- Verificar que haya suficiente stock
+                    IF @UnitsInStock >= @Quantity
+                    BEGIN
+                        INSERT INTO Northwind.dbo.[Order Details](
+                            OrderID, ProductID, UnitPrice, Quantity, Discount
+                        ) 
+                        VALUES(
+                            @OrderID, @ProductID, @precioVenta, @Quantity, @Discount
+                        );
 
-                    -- Actualizar la tabla Products reduciendo UnitsInStock con la cantidad vendida
-                    UPDATE Northwind.dbo.Products 
-                    SET UnitsInStock = UnitsInStock - @Quantity 
-                    WHERE ProductID = @ProductID;
+                        -- Actualizar la tabla Products reduciendo UnitsInStock con la cantidad vendida
+                        UPDATE Northwind.dbo.Products 
+                        SET UnitsInStock = UnitsInStock - @Quantity 
+                        WHERE ProductID = @ProductID;
+                    END
+                    ELSE 
+                    BEGIN
+                        RAISERROR('Stock insuficiente para el producto con ID %d', 16, 1, @ProductID);
+                        ROLLBACK TRANSACTION;
+                        RETURN;
+                    END
                 END
                 ELSE 
                 BEGIN
@@ -96,4 +108,28 @@ BEGIN
             PRINT @mensajeError;
         END CATCH
 END;
+GO
+
+ 
+-- Declarar la tabla de parámetros
+DECLARE @TablaProducto ProductsTableType;
+
+-- Insertar datos en la tabla de parámetros
+INSERT INTO @TablaProducto(ProductID, Quantity, Discount)
+VALUES (1, 5, 0), (2, 8, 0), (3, 10, 0);
+
+-- Visualizar los datos de la tabla de parámetros
+-- SELECT * FROM @TablaProducto;
+
+-- Ejecutar el procedimiento almacenado
+EXEC ups_insertOrder_tabla_Parametros
+    @CustomerID = 'ALFKI', 
+    @EmployeeID = 5, 
+    @OrderDate = '2023-02-18', 
+    @RequiredDate = '2023-02-18', 
+    @ShippedDate = '2023-02-18', 
+    @ShipVia = 3,
+    @Freight = 10.0,
+    @ShipCountry = 'USA', 
+    @TablaProducto = @TablaProducto;
 GO
